@@ -1,0 +1,350 @@
+#!/usr/bin/env python
+
+"""
+img2ascii
+Convert images to ASCII art.
+Author: Mahesh Venkitachalam
+Modified by f279801
+"""
+
+import collections
+import argparse
+import re
+import os
+import math
+import subprocess
+import sys
+import numpy as np
+from PIL import Image
+
+# gray scale level values from:
+# http://paulbourke.net/dataformats/asciiart/
+GRAY_SCALE_1 = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\|()1{}[]?-_+~<>i!lI;:,\"^`'. "
+"""70 levels of gray scales"""
+GRAY_SCALE_2 = '@%#*+=-:. '
+"""10 levels of gray scales"""
+
+
+class RGB(object):
+    """RGB implementation"""
+
+    # Color levels for the 6x6 color cube
+    # More info:
+    #   - https://jonasjacek.github.io/colors/
+    #   - https://gist.github.com/MicahElliott/719710
+    #   - https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit
+    _levels = [0x2f, 0x73, 0x9b, 0xc3, 0xeb]
+
+    def __init__(self, source=None):
+        """Create RGB object from given source
+
+        :param source: given source to build up the object. Acceptable type
+            - string in form '#xxyyzz'
+            - `sequence` that has 3 items
+        """
+        if source:
+            if type(source) == str:
+                source = source.strip('#')
+                self._r, self._g, self._b = map(lambda x: int(x, 16), re.split(r'(..)(..)(..)', source)[1:4])
+            elif isinstance(source, collections.Sequence):
+                if len(source) == 3:
+                    self._r = int(source[0])%256
+                    self._g = int(source[1])%256
+                    self._b = int(source[2])%256
+        else:
+            self._r = 0
+            self._g = 0
+            self._b = 0
+
+    @staticmethod
+    def _fine_tune(val):
+        if val > 255:
+            return 255
+        elif val < 0:
+            return 0
+        else:
+            return val
+
+    @property
+    def R(self):
+        return self._r
+
+    @R.setter
+    def R(self, val):
+        val = int(val)
+        self._r = self._fine_tune(val)
+
+    @property
+    def G(self):
+        return self._g
+
+    @G.setter
+    def G(self, val):
+        val = int(val)
+        self._g = self._fine_tune(val)
+
+    @property
+    def B(self):
+        return self._b
+
+    @B.setter
+    def B(self, val):
+        val = int(val)
+        self._b = self._fine_tune(val)
+
+    @staticmethod
+    def _to_cube(value):
+        index = 0
+        l = len(RGB._levels)
+        while index < l and RGB._levels[index] < value:
+            index += 1
+        return index
+
+    def to_xterm(self):
+        """Convert RGB color into xterm-256 code"""
+        r, g, b = map(self._to_cube, (self._r, self._g, self._b))
+        return r*36 + g*6 + b + 16
+
+
+class Decorator(object):
+    """Terminal decorator"""
+
+    COLOR = u'\u001b[38;5;'
+    BG = u'\u001b[48;5;'
+    BOLD = u'\u001b[1m'
+    UNDERLINE = u'\u001b[4m'
+    INVERSED = u'\u001b[7m'
+    END = u'\u001b[0m'
+    BLACK = 0
+    MAROON = 1
+    GREEN = 2
+    OLIVE = 3
+    NAVY = 4
+    PURPLE = 5
+    TEAL = 6
+    SILVER = 7
+    GREY = 8
+    RED = 9
+    LIME = 10
+    YELLOW = 11
+    BLUE = 12
+    FUCHSIA = 13
+    AQUA = 14
+    WHITE = 15
+
+    @staticmethod
+    def red(str):
+        """Turn a string into red color"""
+        return Decorator.color(str, Decorator.RED)
+
+    @staticmethod
+    def green(str):
+        """Turn a string into green color"""
+        return Decorator.color(str, Decorator.GREEN)
+
+    @staticmethod
+    def blue(str):
+        """Turn a string into blue color"""
+        return Decorator.color(str, Decorator.BLUE)
+
+    @staticmethod
+    def yellow(str):
+        """Turn a string into yellow color"""
+        return Decorator.color(str, Decorator.YELLOW)
+
+    @staticmethod
+    def white(str):
+        """Turn a string into white color"""
+        return Decorator.color(str, Decorator.WHITE)
+
+    @staticmethod
+    def color(str, color):
+        """Color a string `color`"""
+        return '{0}{1}m{2}{3}'.format(Decorator.COLOR, color, str, Decorator.END)
+
+    @staticmethod
+    def bg(str, color):
+        """Set string background color"""
+        return '{0}{1}m{2}{3}'.format(Decorator.BG, color, str, Decorator.END)
+
+    @staticmethod
+    def _test_color():
+        for i in range(0, 256):
+            sys.stdout.write(Decorator.color('{0:>4d}'.format(i),i))
+            if (i+1)%16 == 0:
+                sys.stdout.write('\n')
+        sys.stdout.write('\n')
+
+    @staticmethod
+    def _test_background():
+        for i in range(0, 256):
+            sys.stdout.write(Decorator.bg('{0:>4d}'.format(i),i))
+            if (i+1)%16 == 0:
+                sys.stdout.write('\n')
+        sys.stdout.write('\n')
+
+
+def debug(msg):
+    if 'DEBUG' in os.environ:
+        print(msg)
+
+
+def get_average_gray(image):
+    """Get overall bright of the image"""
+    im = np.array(image)
+    return np.average(im)
+
+
+def get_average_color(image):
+    """Get overall color of the image
+
+    :param image: input image
+    :return: object of `RGB` that represents the average color of the image
+    """
+    im = np.array(image)
+    w, h, l = im.shape
+    return RGB(tuple(np.average(im.reshape(w * h, l), axis=0)))
+
+
+def increase_constract(img, contrast):
+    if contrast == 0:
+        return
+
+    contrast_lookup_table = {}
+
+    def build_up_table(contrast):
+        """Build up contrast lookup table for faster access
+
+        See the formula
+        https://www.dfstudios.co.uk/articles/programming/image-programming-algorithms/image-processing-algorithms-part-5-contrast-adjustment/
+
+        :param contrast: level of contrast
+        :return: This fill-up the outer-scope contrast_lookup_table
+        """
+        factor = float(259 * (contrast + 255)) / (255 * (259 - contrast))
+        for i in range(0, 256):
+            origin = i
+            new_value = int(factor*(i - 128) + 128)
+            if new_value < 0:
+                new_value = 0
+            elif new_value > 255:
+                new_value = 255
+            contrast_lookup_table[origin] = new_value
+
+    build_up_table(contrast)
+    w, h = img.size
+    for x in range(w):
+        for y in range(h):
+            p = img.getpixel((x, y))
+            if type(p) == tuple:
+                new_pixel = tuple(map(lambda x: contrast_lookup_table[x], p))
+            else:
+                new_pixel = contrast_lookup_table[p]
+            img.paste(new_pixel, (x,y,x+1,y+1))
+
+
+def image2ascii(input, width, scale=0.43, use_more_levels=True, use_color=True, contrast=32):
+    """Convert image into ASCII
+
+    :param input: input image
+    :param width: expected with of the generated text
+    :param scale: scale factor that should be used, note leave it empty if you don't know what it is
+    :param use_more_levels: use more levels of grey scale
+    :param use_color: use color for the image or not
+    :param contrast: contrast level to apply
+    :return: ASCII text in a list
+    """
+    global GRAY_SCALE_1, GRAY_SCALE_2
+    if use_color:
+        image = Image.open(input).convert('RGB')
+        decorator = Decorator()
+    else:
+        image = Image.open(input).convert('L')
+        decorator = None
+
+    W, H = image.size
+    debug("input image dims: %d x %d" % (W, H))
+    increase_constract(image, contrast)
+    # Fine-tune all dimensions
+    w = int(math.ceil(float(W)/width))
+    h = int(math.ceil(float(w)/scale))
+    cols = int(math.ceil(float(W)/w))
+    rows = int(math.ceil(float(H)/h))
+
+    debug("cols: %d, rows: %d" % (cols, rows))
+    debug("tile dims: %d x %d" % (w, h))
+
+    aimg = ["" for r in range(rows)]
+    for r in range(rows):
+        for c in range(cols):
+            x1 = c*w
+            x2 = W if c == cols - 1 else (c + 1)*w
+            y1 = r*h
+            y2 = H if r == rows - 1 else (r + 1)*h
+            # get the tile
+            img = image.crop((x1, y1, x2, y2))
+            # calculate its average luminance
+            avg = int(get_average_gray(img))
+            # then convert it to a single character
+            if use_more_levels:
+                gsval = GRAY_SCALE_1[int((avg * (len(GRAY_SCALE_1) - 1)) / 255)]
+            else:
+                gsval = GRAY_SCALE_2[int((avg * (len(GRAY_SCALE_1) - 1)) / 255)]
+            if use_color:
+                # finally add color if needed
+                color = get_average_color(img)
+                gsval = decorator.color(gsval, color.to_xterm())
+            aimg[r] += gsval
+
+    return aimg
+
+
+def main():
+    def contrast_validation(value):
+        try:
+            value = int(value)
+        except ValueError as e:
+            raise argparse.ArgumentTypeError('int should be provided for contrast')
+        if value < -255 or value > 255:
+            raise argparse.ArgumentError('Value should be in range -255, 255')
+        return value
+
+    descStr = "This program converts an image into ASCII art."
+    parser = argparse.ArgumentParser(description=descStr)
+    parser.add_argument('image')
+    parser.add_argument('-s', '--scale', dest='scale', required=False, type=float, default=0.43,
+                        help='Scale factor of the font. Leave it empty if you don\'t know what it is')
+    parser.add_argument('-o', '--output', dest='output', required=False,
+                        help='Write to a file instead of stdout')
+    parser.add_argument('-w', '--width', dest='width', required=False, type=int,
+                        help='Width of the output text, best fit the screen if not provided')
+    parser.add_argument('-l', '--lesslevels', dest='morelevels', action='store_false',
+                        help='Use less levels of grayscale')
+    parser.add_argument('-n', '--no-colors', dest='color', action='store_false',
+                        help='Don\'t use color')
+    parser.add_argument('-c', '--contrast', dest='contrast', required=False, type=contrast_validation, default=128,
+                        help='Contrast to optimize the image, should be in range -255, 255')
+
+    args = parser.parse_args()
+
+    if not args.width:
+        # We'll try to fit the screen
+        screen_width = int(subprocess.check_output(['tput', 'cols']).strip())
+        args.width = 0.9*screen_width
+
+    debug('generating ASCII art...')
+
+    text_img = image2ascii(args.image, args.width, args.scale, args.morelevels, args.color, args.contrast)
+
+    if args.output:
+        with open(args.output, 'w') as f:
+            for row in text_img:
+                f.write(row + '\n')
+        print("ASCII art written to %s" % args.output)
+    else:
+        for row in text_img:
+            print(row)
+
+
+if __name__ == '__main__':
+    main()
