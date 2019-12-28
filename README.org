@@ -14,7 +14,6 @@ pip install --user numpy Pillow
 ./img2ascii --help
 #+end_src
 
-#+RESULTS:
 #+begin_example
 usage: img2ascii [-h] [-s SCALE] [-o OUTPUT] [-w WIDTH] [-l] [-n]
                  [-c CONTRAST]
