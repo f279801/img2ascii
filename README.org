@@ -1,0 +1,46 @@
+* img2ascii
+An utility to convert image into ascii.
+This tool is basically an extended version of [[https://github.com/electronut/pp/blob/master/ascii/ascii.py][ascii.py]] wrotten by Mahesh Venkitachalam
+
+* Installation
+
+Install numpy and Pillow
+#+begin_src sh
+pip install --user numpy Pillow
+#+end_src
+
+* Usage
+#+begin_src sh :dir src/ :results value verbatim
+./img2ascii --help
+#+end_src
+
+#+RESULTS:
+#+begin_example
+usage: img2ascii [-h] [-s SCALE] [-o OUTPUT] [-w WIDTH] [-l] [-n]
+                 [-c CONTRAST]
+                 image
+
+This program converts an image into ASCII art.
+
+positional arguments:
+  image
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -s SCALE, --scale SCALE
+                        Scale factor of the font. Leave it empty if you don't
+                        know what it is
+  -o OUTPUT, --output OUTPUT
+                        Write to a file instead of stdout
+  -w WIDTH, --width WIDTH
+                        Width of the output text, best fit the screen if not
+                        provided
+  -l, --lesslevels      Use less levels of grayscale
+  -n, --no-colors       Don't use color
+  -c CONTRAST, --contrast CONTRAST
+                        Contrast to optimize the image, should be in range
+                        -255, 255
+#+end_example
+
+#+ATTR_HTML: align="center"; margin-right="auto"; margin-left="auto"
+[[file:examples/Gengar.png]]
