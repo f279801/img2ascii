@@ -243,7 +243,7 @@ def increase_constract(img, contrast):
             img.paste(new_pixel, (x,y,x+1,y+1))
 
 
-def image2ascii(input, width, scale=0.43, use_more_levels=True, use_color=True, contrast=32):
+def image2ascii(input, width, height, scale=0.43, use_more_levels=True, use_color=True, contrast=32, mode='ratio'):
     """Convert image into ASCII
 
     :param input: input image
@@ -266,8 +266,31 @@ def image2ascii(input, width, scale=0.43, use_more_levels=True, use_color=True, 
     debug("input image dims: %d x %d" % (W, H))
     increase_constract(image, contrast)
     # Fine-tune all dimensions
-    w = int(math.ceil(float(W)/width))
-    h = int(math.ceil(float(w)/scale))
+    if mode == 'shrink_w':
+        w = int(math.ceil(float(W)/width))
+        h = int(math.ceil(float(w)/scale))
+        W2 = w*width
+        H2 = int(math.ceil(float(H*W2)/W))
+        image = image.resize((W2,H2))
+        W, H = image.size
+    elif mode == 'shrink_h':
+        h = int(math.ceil(float(H)/height))
+        w = int(math.ceil(float(h)*scale))
+        H2 = h*height
+        W2 = int(math.ceil(float(W*H2)/H))
+        image = image.resize((W2,H2))
+        W, H = image.size
+    elif mode == 'fit':
+        w = int(math.ceil(float(W)/width))
+        h = int(math.ceil(float(w)/scale))
+        W2 = w*width
+        H2 = h*height
+        image = image.resize((W2,H2))
+        W, H = image.size
+    else:
+        w = int(math.ceil(float(W)/width))
+        h = int(math.ceil(float(w)/scale))
+
     cols = int(math.ceil(float(W)/w))
     rows = int(math.ceil(float(H)/h))
 
@@ -310,14 +333,20 @@ def main():
         return value
 
     descStr = "This program converts an image into ASCII art."
-    parser = argparse.ArgumentParser(description=descStr)
+    parser = argparse.ArgumentParser(description=descStr,formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('image')
-    parser.add_argument('-s', '--scale', dest='scale', required=False, type=float, default=0.43,
-                        help='Scale factor of the font. Leave it empty if you don\'t know what it is')
+    parser.add_argument('-m', '--mode', dest='mode', required=False, choices=['ratio', 'shrink_w', 'shrink_h', 'fit'], default='ratio',
+                        help='''Displaying mode for the output.
+ratio: keep image ratio.
+shrink_w: shrink the image to fix terminal width.
+shrink_h: shrink the image to fix terminal height.
+fit: scale the iamge to fit the terminal's screen.''')
     parser.add_argument('-o', '--output', dest='output', required=False,
                         help='Write to a file instead of stdout')
     parser.add_argument('-w', '--width', dest='width', required=False, type=int,
                         help='Width of the output text, best fit the screen if not provided')
+    parser.add_argument('-d', '--height', dest='height', required=False, type=int,
+                        help='Height of the output text, best fit the screen if not provided')
     parser.add_argument('-l', '--lesslevels', dest='morelevels', action='store_false',
                         help='Use less levels of grayscale')
     parser.add_argument('-n', '--no-colors', dest='color', action='store_false',
@@ -330,11 +359,15 @@ def main():
     if not args.width:
         # We'll try to fit the screen
         screen_width = int(subprocess.check_output(['tput', 'cols']).strip())
-        args.width = 0.9*screen_width
+        args.width = screen_width
+
+    if not args.height:
+        screen_height = int(subprocess.check_output(['tput', 'lines']).strip())
+        args.height = screen_height
 
     debug('generating ASCII art...')
 
-    text_img = image2ascii(args.image, args.width, args.scale, args.morelevels, args.color, args.contrast)
+    text_img = image2ascii(args.image, args.width, args.height, use_more_levels=args.morelevels, use_color=args.color, contrast=args.contrast, mode=args.mode)
 
     if args.output:
         with open(args.output, 'w') as f:
